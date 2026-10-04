@@ -1,0 +1,75 @@
+WITH wi_population AS
+(
+    SELECT
+        w.processinstanceid AS wi,
+        w.var_str8          AS customer_id,
+        w.activityname      AS current_stage,
+        w.previousstage,
+        w.createddatetime
+    FROM wfinstrumenttable w
+    WHERE w.createddatetime >= TO_DATE('09/01/2026', 'MM/DD/YYYY')
+      AND w.createddatetime <  TO_DATE('09/05/2026', 'MM/DD/YYYY')
+),
+
+prospecting_history AS
+(
+    SELECT
+        h.wi_name,
+        h.user_id,
+        h.user_name,
+        h.decision,
+        h.date_time,
+        h.entrydatetime,
+        h.actual_tat,
+        h.insertionorderid,
+
+        ROW_NUMBER() OVER
+        (
+            PARTITION BY h.wi_name
+            ORDER BY
+                h.date_time DESC,
+                h.insertionorderid DESC
+        ) AS rn
+
+    FROM ng_clos_remarks_history h
+    WHERE h.workstep_name = 'Prospecting_Unit'
+)
+
+SELECT
+    w.wi,
+    w.customer_id,
+    w.current_stage,
+    w.previousstage,
+
+    CASE
+        WHEN w.current_stage = 'Prospecting_Unit'
+             AND p.wi_name IS NULL
+        THEN 'Currently in Prospecting - Not Yet Handled'
+
+        WHEN w.current_stage = 'Prospecting_Unit'
+             AND p.wi_name IS NOT NULL
+        THEN 'Currently in Prospecting - Handled'
+
+        WHEN w.current_stage <> 'Prospecting_Unit'
+             AND p.wi_name IS NOT NULL
+        THEN 'Previously Handled in Prospecting'
+
+        ELSE 'Never Handled in Prospecting'
+    END AS prospecting_status,
+
+    p.user_id       AS last_prospecting_user_id,
+    p.user_name     AS last_prospecting_user_name,
+    p.decision      AS last_prospecting_decision,
+    p.date_time     AS last_prospecting_date,
+    p.actual_tat    AS last_prospecting_tat
+
+FROM wi_population w
+
+LEFT JOIN prospecting_history p
+    ON p.wi_name = w.wi
+   AND p.rn = 1
+
+ORDER BY
+    prospecting_status,
+    p.user_name,
+    p.date_time DESC;
